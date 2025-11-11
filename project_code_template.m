@@ -62,7 +62,7 @@ irstr = 0;            % Restart flag: = 1 for restart (file 'restart.in', = 0 fo
 ipgorder = 0;         % Order of pressure gradient: 0 = 2nd, 1 = 3rd (not needed)
 lim = 1;              % variable to be used as the limiter sensor (= 1 for pressure)
 
-cfl  = 0.5;      % CFL number used to determine time step
+cfl  = 0.9;      % CFL number used to determine time step
 Cx = 0.01;     	% Parameter for 4th order artificial viscosity in x
 Cy = 0.01;      	% Parameter for 4th order artificial viscosity in y
 toler = 1.e-10; 	% Tolerance for iterative residual convergence
@@ -85,7 +85,7 @@ rhoinv =  -99.9; 	% Inverse density, 1/rho (m^3/kg)
 rlength = -99.9;  	% Characteristic length (m) [cavity width]
 rmu = -99.9;  		% Viscosity (N*s/m^2)
 vel2ref = -99.9;  	% Reference velocity squared (m^2/s^2)
-dx = -99.9; 		%	 Delta x (m)
+dx = -99.9; 		% Delta x (m)
 dy = -99.9;  		% Delta y (m)
 rpi = -99.9; 		% Pi = 3.14159... (defined below)
 
@@ -182,7 +182,6 @@ resinit(:) = -99.9;
 rL1norm(:) = -99.9;
 rL2norm(:) = -99.9;
 rLinfnorm(:) = -99.9;
-
 
 % Debug output: Uncomment and modify if debugging
 %$$$$$$ fp6 = fopen("./Debug.dat","w");
@@ -493,9 +492,37 @@ global u
 % !************ADD CODING HERE FOR INTRO CFD STUDENTS************ */
 % !************************************************************** */
 
+% Pressure
+for i = 2:imax-1 % T, B boundaries
+    u(i,1,1) = two*u(i,2,1) - u(i,3,1);
+    u(i,jmax,1) = two*u(i,jmax-1,1) - u(i,jmax-2,1);
+end
 
+for j = 2:jmax-1 % L, R boundaries
+    u(1,j,1) = two*u(2,j,1) - u(3,j,1);
+    u(imax,j,1) = two*u(imax-1,j,1) - u(imax-2,j,1);
+end
+
+% Pressure, corners
+u(1,1,1) = half * (u(1,2,1) + u(2,1,1));
+u(imax,1,1) = half * (u(imax-1,1,1) + u(imax,2,1));
+u(1,jmax,1) = half * (u(1,jmax-1,1) + u(2,jmax,1));
+u(imax,jmax,1) = half * (u(imax-1,jmax,1) + u(imax,jmax-1,1));
+
+% U-velocity
+u(:,1,2) = uinf; % Lid
+u(:,jmax,2) = zero;
+u(1,:,2) = zero;
+u(imax,:,2) = zero;
+
+% V-velocity
+u(:,1,3) = zero;
+u(:,jmax,3) = zero;
+u(1,:,3) = zero;
+u(imax,:,3) = zero;
 
 end
+
 %************************************************************************
 function bndrymms(~)
 %
@@ -846,8 +873,25 @@ global u dt
 % !************ADD CODING HERE FOR INTRO CFD STUDENTS************ */
 % !************************************************************** */
 
+for i = 2:imax-1
+    for j = 2:jmax-1
+        % u^2 and beta^2 calculation
+        uvel2 = u(i,j,2)^2 + u(i,j,3)^2;
+        beta2 = max((uvel2), (rkappa * vel2ref));
+        
+        % Eigenvalues
+        lambdax = abs(half * abs(u(i,j,2)) + sqrt(u(i,j,2)^2 + four * beta2));
+        lambday = abs(half * abs(u(i,j,3)) + sqrt(u(i,j,3)^2 + four * beta2));
 
+        % dt calculation
+        dt_conv = min(dx, dy) / abs(max(lambdax, lambday)); % convective stability
+        dt_diff = fourth * dx * dy / (rmu / rho); % diffusive stability
 
+        % dt selection
+        dt(i,j) = cfl * min(dt_conv, dt_diff);
+        dtmin = min(dt(i,j), dtmin);
+    end
+end
 
 end
 %************************************************************************
@@ -1002,9 +1046,33 @@ global u uold artviscx artviscy dt s
 % !************ADD CODING HERE FOR INTRO CFD STUDENTS************ */
 % !************************************************************** */
 
+for i = 2:imax-1
+    for j = 2:jmax-1
 
+        % Pre-calculate derivatives, etc.
+        dpdx = half * (uold(i+1,j,1) - uold(i-1,j,1)) / dx;
+        dudx = half * (uold(i+1,j,2) - uold(i-1,j,2)) / dx;
+        dvdx = half * (uold(i+1,j,3) - uold(i-1,j,3)) / dx;
 
+        dpdy = half * (uold(i,j+1,1) - uold(i,j-1,1)) / dy;
+        dudy = half * (uold(i,j+1,2) - uold(i,j-1,2)) / dy;
+        dvdy = half * (uold(i,j+1,3) - uold(i,j-1,3)) / dy;
 
+        d2udx2 = (uold(i+1,j,2) - two * uold(i,j,2) + uold(i-1,j,2)) / dx^two;
+        d2vdx2 = (uold(i+1,j,3) - two * uold(i,j,3) + uold(i-1,j,3)) / dx^two;
+
+        d2udy2 = (uold(i,j+1,2) - two * uold(i,j,2) + uold(i,j-1,2)) / dy^two;
+        d2vdy2 = (uold(i,j+1,2) - two * uold(i,j,2) + uold(i,j-1,2)) / dy^two;
+
+        uvel2 = uold(i,j,2)^2 + uold(i,j,3)^2;
+        beta2 = max(uvel2, (rkappa * vel2ref));
+
+        % Update u
+        u(i,j,1) = uold(i,j,1) - beta2 * dt * (rho * dudx + rho * dudy - s(i,j,1) - artviscx(i,j) - artviscy(i,j));
+        u(i,j,2) = uold(i,j,2) - dt * rhoinv * (rho * uold(i,j,2) * dudx + rho * uold(i,j,3) * dudy + dpdx - rmu * d2udx2 - rmu * d2udy2 - s(i,j,2));
+        u(i,j,3) = uold(i,j,3) - dt * rhoinv * (rho * uold(i,j,2) * dvdx + rho * uold(i,j,3) * dvdy + dpdy - rmu * d2vdx2 - rmu * d2vdy2 - s(i,j,3));
+    end
+end
 
 end
 %************************************************************************
@@ -1108,8 +1176,34 @@ if imms==1
 % !************ADD CODING HERE FOR INTRO CFD STUDENTS************ */
 % !************************************************************** */
 
+for k = 1:neq
+    % Dummy variables
+    rL1normsum = zero;
+    rL2normsum = zero;
 
+    for i = 1:imax
+        for j = 1:jmax
+            % Corresponidng x & y coords
+            x = (xmax - xmin) * (i - 1) / (imax - 1);
+            y = (ymax - ymin) * (j - 1) / (jmax - 1);
+            
+            % DE calculation
+            DE = abs(u(i,j,k) - umms(x,y,k));
+            
+            % Update aggregate norms
+            rL1normsum = rL1normsum + DE;
+            rL2normsum = rL2normsum + DE^2;
+            rLinfnorm(k) = max(rLinfnorm(k), DE);
+        end
+    end
 
+    % Update global norms
+    rL1norm(k) = rL1normsum / (imax * jmax);
+    rL2norm(k) = sqrt(rL2normsum) / (imax * jmax);
+    %rLinfnorm(k) = rLinfnorm(k);
+
+    % Will need to output to file for portability to/from ARC
+end
 
 end
 
