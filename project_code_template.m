@@ -1176,6 +1176,11 @@ if imms==1
 % !************ADD CODING HERE FOR INTRO CFD STUDENTS************ */
 % !************************************************************** */
 
+norm_file = fopen('Norms_Discretization_Error.dat','w');
+fprintf(norm_file, 'Variable   L1 Norm      L2 Norm      Linf Norm\n');
+
+DE_full = zeros(imax,jmax,neq);
+
 for k = 1:neq
     % Dummy variables
     rL1normsum = zero;
@@ -1189,6 +1194,7 @@ for k = 1:neq
             
             % DE calculation
             DE = abs(u(i,j,k) - umms(x,y,k));
+            DE_full(i,j,k) = DE;
             
             % Update aggregate norms
             rL1normsum = rL1normsum + DE;
@@ -1199,11 +1205,21 @@ for k = 1:neq
 
     % Update global norms
     rL1norm(k) = rL1normsum / (imax * jmax);
-    rL2norm(k) = sqrt(rL2normsum) / (imax * jmax);
+    rL2norm(k) = sqrt(rL2normsum / (imax * jmax));
     %rLinfnorm(k) = rLinfnorm(k);
 
-    % Will need to output to file for portability to/from ARC
+    fprintf(norm_file, '%d          %e     %e     %e\n', k, rL1norm(k), rL2norm(k), rLinfnorm(k));
+
 end
+
+fclose(norm_file);
+
+DE_p_monitoring_file = fopen('DE_Pressure_vs_X.dat','w');
+fprintf(pressure_file, 'x-location (m)   DE (Pressure)\n');
+for i = 1:imax
+    fprintf(DE_p_monitoring_file, '%e   %e\n', i, DE_full(i,jmax-1,1));
+end
+fclose(DE_p_monitoring_file);
 
 end
 
