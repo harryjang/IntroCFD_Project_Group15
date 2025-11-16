@@ -1217,7 +1217,7 @@ fclose(norm_file);
 DE_p_monitoring_file = fopen('DE_Pressure_vs_X.dat','w');
 fprintf(pressure_file, 'x-location (m)   DE (Pressure)\n');
 for i = 1:imax
-    fprintf(DE_p_monitoring_file, '%e   %e\n', i, DE_full(i,jmax-1,1));
+    fprintf(DE_p_monitoring_file, '%e   %e\n', i, DE_full(i,(jmax+1)/2,1));
 end
 fclose(DE_p_monitoring_file);
 
